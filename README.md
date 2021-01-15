@@ -9,20 +9,20 @@ To run the basic learning system, you'll need three command prompts, as follows:
 
 Command prompt 1:
 
-cd web_server
-dnc .
-dana pal.rest WebServer.o
+    cd web_server
+    dnc .
+    dana pal.rest WebServer.o
 
 Command prompt 2 (note there are multiple workload files, we just pick one of them here):
 
-cd client
-dnc .
-dana .\Client.o .\client_default.txt
+    cd client
+    dnc .
+    dana .\Client.o .\client_default.txt
 
 Command prompt 3:
 
-cd learning
-dnc .
-dana Learning.o
+    cd learning
+    dnc .
+    dana Learning.o
 
 When this is running, you will see output in all three windows which shows what the system is currently doing. Note the above assumes that all three programs are running on the same host; if the client is on a different host you'll need to update the IP address of the server in Client.dn
