@@ -1,0 +1,123 @@
+const char DEFAULT_SERVER_IP[] = "localhost"
+const int DEFAULT_SERVER_PORT = 8008
+
+const int OBSERVATION_WINDOW = 1000 //ms
+
+component provides App requires io.Output out, pal.control.RestAPI, net.http.HTTPRequest request, ml.rl.RL, time.Timer timer, data.IntUtil iu, data.DecUtil du, data.json.JSONParser parser {
+	
+	dec normalisation_low = 0.0
+	dec normalisation_high = 100.0
+	
+	dec scaleCost(dec cost, dec lowCost, dec highCost)
+		{
+		//here we lock the cost between the given range, where anything falling outside of that range is just set of highCost
+		// - we then do 1 - cost to convert to reward
+		
+		//first truncate at high/low cost
+		if (cost > highCost)
+			{
+			cost = highCost
+			}
+			else if (cost < lowCost)
+			{
+			cost = lowCost
+			}
+		
+		//shift negative low
+		if (lowCost < 0.0)
+			{
+			dec mod = lowCost / -1.0
+			cost += mod
+			lowCost += mod
+			highCost += mod
+			}
+		
+		//now convert the range into 0.0 -> 1.0
+		dec scaledCost = cost / highCost
+		
+		return scaledCost
+		}
+	
+	dec costToReward(dec cost)
+		{
+		//invert to get reward
+		return 1.0 - cost
+		}
+	
+	int App:main(AppParam params[])
+		{
+		//connect to rest API of PAL and set config to index 0 (or any other index you like...)
+		RestAPI restAPI = new RestAPI(DEFAULT_SERVER_IP, DEFAULT_SERVER_PORT)
+		
+		String configs[] = restAPI.getConfigs()
+		
+		RL learning = new RL()
+		
+		learning.setActions(configs)
+		
+		while (true)
+			{
+			//get the learner algorithm's next action, and set that action (composition) in PAL
+			int ndx = learning.getAction()
+			
+			restAPI.setConfig(configs[ndx].string)
+			
+			out.println("chosen action $ndx")
+			
+			//wait for some time...
+			timer.sleep(OBSERVATION_WINDOW)
+			
+			//get the perception data from PAL (which is JSON-encoded)
+			HTTPResponse r = request.get("http://$DEFAULT_SERVER_IP:$DEFAULT_SERVER_PORT/meta/get_perception", null)
+			
+			//extract the reward from the JSON data
+			JSONElement doc = parser.parseDocument(r.content)
+			JSONElement se = null
+			
+			//NOTE: if your observation window is "too small" you may get zero reward - e.g. for a web server, if no requests were served in that time
+			dec reward = 0.0
+			
+			if ((se = parser.getValue(doc, "metrics")) != null)
+				{
+				dec vk = iu.intFromString(parser.getValue(se.children[0], "value").value)
+				dec vt = iu.intFromString(parser.getValue(se.children[0], "count").value)
+				
+				dec avg = vk / vt
+				
+				reward = avg
+				}
+			
+			/*
+			// "environment" data is acquired as below from the JSON data, if you want it...
+			if ((se = parser.getValue(doc, "events")) != null)
+				{
+				for (int i = 0; i < se.children.arrayLength; i ++)
+					{
+					char name[] = parser.getValue(se.children[i], "name").value
+					
+					dec vk = iu.intFromString(parser.getValue(se.children[i], "value").value)
+					dec vt = iu.intFromString(parser.getValue(se.children[i], "count").value)
+					
+					dec avg = vk / vt
+					}
+				}
+			*/
+			
+			//normalise the reward (which is actually currently "cost", since lower is better)
+			dec normalised = scaleCost(reward, normalisation_low, normalisation_high)
+			
+			//convert what is actually "cost" into reward, where higher is better (ML algorithms assume reward as input, not cost)
+			dec finalReward = costToReward(normalised)
+			
+			out.println(" - calculated reward:")
+			out.println("    - original $reward")
+			out.println("    - normalised $normalised")
+			out.println("    - reward $finalReward")
+			
+			//send reward data for this action to the learning algorithm
+			learning.consumeData(finalReward)
+			}
+		
+		return 0
+		}
+	}
