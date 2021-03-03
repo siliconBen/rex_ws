@@ -133,15 +133,11 @@ component provides request.RequestHandler(Destructor, AdaptEvents) requires io.O
 		WorkerThread wt = workers
 		
 		destroying = true
-
-		for (int i = 0; i < 10; i++) {
-			if (wt != null) {
+		
+		while (wt != null) {
 				wt.thread.signal()
 				wt.thread.join()
 				wt = wt.next
-			} else {
-				break
 			}
 		}
-	}
 }

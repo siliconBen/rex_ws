@@ -52,7 +52,7 @@ component provides App requires io.Output out, pal.control.RestAPI, net.http.HTT
 		String configs[] = restAPI.getConfigs()
 		
 		RL learning = new RL()
-		
+		learning.setExplorationPenalty(1.0)
 		learning.setActions(configs)
 		
 		while (true)
@@ -60,9 +60,9 @@ component provides App requires io.Output out, pal.control.RestAPI, net.http.HTT
 			//get the learner algorithm's next action, and set that action (composition) in PAL
 			int ndx = learning.getAction()
 			
-			restAPI.setConfig(configs[ndx].string)
+			out.println("choosing action $ndx") // $(configs[ndx].string)")
 			
-			out.println("chosen action $ndx")
+			restAPI.setConfig(configs[ndx].string)
 			
 			//wait for some time...
 			timer.sleep(OBSERVATION_WINDOW)
