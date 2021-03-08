@@ -33,6 +33,8 @@ component provides App requires io.Output out, data.IntUtil iu, data.DecUtil du,
 			last4[3] = b[0]
 			}
 		
+		out.println("recv: '$buf'")
+		
 		headers = stringUtil.explode(buf, "\r\n")
 		
 		return headers
@@ -232,7 +234,7 @@ component provides App requires io.Output out, data.IntUtil iu, data.DecUtil du,
 				char contentType[] = getHeaderValue(headers, "content-type")
 				char payloadSize[] = getHeaderValue(headers, "content-length")
 				
-				if (contentType == "text/json")
+				if (contentType == "text/json" || contentType == "application/json")
 					{
 					char config[] = socket.recv(iu.intFromString(payloadSize))
 					
