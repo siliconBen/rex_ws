@@ -115,7 +115,7 @@ component provides App requires io.Output out, pal.control.RestAPI, net.http.HTT
 			out.println("    - reward $finalReward")
 			
 			//send reward data for this action to the learning algorithm
-			learning.consumeData(finalReward)
+			learning.setReward(finalReward)
 			}
 		
 		return 0

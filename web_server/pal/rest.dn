@@ -33,7 +33,7 @@ component provides App requires io.Output out, data.IntUtil iu, data.DecUtil du,
 			last4[3] = b[0]
 			}
 		
-		out.println("recv: '$buf'")
+		//out.println("recv: '$buf'")
 		
 		headers = stringUtil.explode(buf, "\r\n")
 		
