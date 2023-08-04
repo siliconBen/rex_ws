@@ -1,0 +1,100 @@
+const char DEFAULT_SERVER_IP[] = "127.0.0.1"
+const int DEFAULT_SERVER_PORT = 8008
+
+//at start of operation no operating env is know, so a random
+//default is given
+const char key[] = "DEFAULT_ENV"
+
+const int OBSERVATION_WINDOW = 1000 //ms
+
+component provides App requires io.Output out, pal.control.RestAPI, net.http.HTTPRequest request, ml.rl.RL, time.Timer timer, data.IntUtil iu, data.DecUtil du, data.json.JSONParser parser, ml.cluster.Clustering { 
+
+	dec normalisation_low = 0.0
+	dec normalisation_high = 100.0
+
+    void updateDataPoints(dec points[], dec rs, dec events) {
+        return
+    }
+
+    void takeAction(int action) {
+        return
+    }
+
+    void evaluateCluster(Cluster cluster) {
+        return
+    }
+    
+    int App:main(AppParam params[]) {
+		//connect to rest API of PAL and set config to index 0 (or any other index you like...)
+		RestAPI restAPI = new RestAPI(DEFAULT_SERVER_IP, DEFAULT_SERVER_PORT)
+		
+		String configs[] = restAPI.getConfigs()
+		
+		RL onlineLearning = new RL()
+		onlineLearning.setExplorationPenalty(1.0)
+		onlineLearning.setActions(configs)
+        
+        //set params for clustering algorithm (dataPoints + k decided by RL)
+        int dimentions = 8 //not sure yet, but this remains constant
+        Clustering cluster = new Clustering(dimentions)
+        int k = 1
+        dec dataPoints[] = new dec[500]
+
+        while (true) {
+            //consult pal for server state
+			HTTPResponse r = request.get("http://$DEFAULT_SERVER_IP:$DEFAULT_SERVER_PORT/meta/get_perception", null)
+			
+			//extract the env metrics
+			JSONElement doc = parser.parseDocument(r.content)
+			JSONElement se = null
+			
+			//NOTE: if your observation window is "too small" you may get zero reward - e.g. for a web server, if no requests were served in that time
+		    
+            dec avgResponseTime
+			if ((se = parser.getValue(doc, "metrics")) != null)
+				{
+				dec vk = iu.intFromString(parser.getValue(se.children[0], "value").value)
+				dec vt = iu.intFromString(parser.getValue(se.children[0], "count").value)
+				
+				avgResponseTime = vk / vt
+				
+				}
+			
+			/*
+			// "environment" data is acquired as below from the JSON data, if you want it...
+			if ((se = parser.getValue(doc, "events")) != null)
+				{
+				for (int i = 0; i < se.children.arrayLength; i ++)
+					{
+					char name[] = parser.getValue(se.children[i], "name").value
+					
+					dec vk = iu.intFromString(parser.getValue(se.children[i], "value").value)
+					dec vt = iu.intFromString(parser.getValue(se.children[i], "count").value)
+					
+					dec avg = vk / vt
+					}
+				}
+			*/
+            //add server state to set of data points for future clustering
+            dec events = 0.0 //dummy value for now
+		    updateDataPoints(dataPoints, avgResponseTime, events)	
+
+            //get rl's next Action
+            int ndx = onlineLearning.getAction()
+
+            //recluster
+            takeAction(ndx)
+
+            //wait
+            timer.sleep(OBSERVATION_WINDOW)
+
+            //evaluate the clusters
+            dec reward = evaluateCluster(null)
+
+            //give reward
+            onlineLearning.setReward(reward)
+        }
+
+       return 0
+    }
+}
