@@ -3,11 +3,12 @@ const int DEFAULT_SERVER_PORT = 8008
 
 const int OBSERVATION_WINDOW = 1000 //ms
 
+
 component provides App requires io.Output out, pal.control.RestAPI, net.http.HTTPRequest request, ml.rl.RL, time.Timer timer, data.IntUtil iu, data.DecUtil du, data.json.JSONParser parser {
 	
 	dec normalisation_low = 0.0
 	dec normalisation_high = 100.0
-	
+
 	dec scaleCost(dec cost, dec lowCost, dec highCost)
 		{
 		//here we lock the cost between the given range, where anything falling outside of that range is just set of highCost
