@@ -1,0 +1,151 @@
+const char DEFAULT_SERVER_IP[] = "127.0.0.1"
+const int DEFAULT_SERVER_PORT = 8008
+const char OFFLINE_DEFAULT_SERVER_IP[] = "127.0.0.1"
+const int OFFLINE_DEFAULT_SERVER_PORT = 8080
+
+const int OBSERVATION_WINDOW = 1000 //ms
+const dec MAX_RT = 1.0 //ms
+
+component provides App requires data.adt.HashTable, io.Output out, pal.control.RestAPI, net.http.HTTPRequest request, time.Timer timer, data.IntUtil iu, data.DecUtil du, data.json.JSONParser parser, ml.cluster.Clustering, offline.OfflineConfigLearner ol {
+
+    //set params for clustering algorithm
+    const int featuresCount = 3
+    int k = 1
+
+    int policy[] = new int[1]
+    policy[0] = 0
+    int env = 0 //currently operating in this env
+
+
+    int currentEnv(Clustering cluster, dec features[], int enviro) {
+        if (policy.arrayLength == 1 && enviro == 0) {
+            return 0
+        }
+        cluster.addValue(features, null) 
+        Cluster clusters[] = cluster.cluster(k)
+        int concekCount = 0
+        out.println("Searching For: ")
+        out.print(du.makeString(features[0]))
+        out.print(", ")
+        out.print(du.makeString(features[1]))
+        out.print(", ")
+        out.print(du.makeString(features[2]))
+        out.print("\n")
+        for (int i = 0; i < clusters.arrayLength; i++) {
+            for (int j = 0; j < clusters[i].arrayLength; j++) {
+                out.println("Found: ")
+                out.print(du.makeString(clusters[i].members[j].values[0]))
+                out.print(", ")
+                out.print(du.makeString(clusters[i].members[j].values[1]))
+                out.print(", ")
+                out.print(du.makeString(clusters[i].members[j].values[2]))
+                out.print("\n")
+                if (
+                   features[0] == clusters[i].members[j].values[0]
+                   && features[1] == clusters[i].members[j].values[1]
+                   && features[2] == clusters[i].members[j].values[2]
+                   ) {
+                    return i
+                }
+                else {
+                    //
+                }
+            }
+        }
+        return 999
+    }
+
+    int App:main(AppParam params[]) {
+        ol.initilise()
+		//connect to rest API of PAL and set config to index 0 (or any other index you like...)
+		RestAPI restAPI = new RestAPI(DEFAULT_SERVER_IP, DEFAULT_SERVER_PORT)
+
+		String configs[] = restAPI.getConfigs()
+
+        Clustering cluster = new Clustering(featuresCount)
+
+        int firstObservation = 1
+
+        while (true) {
+            out.print("current env: ")
+            out.print(iu.makeString(env))
+            out.print("\n")
+            out.print("env count: ")
+            out.print(iu.makeString(policy.arrayLength))
+            out.print("\n")
+            out.println("---------Policy---------")
+            out.println("|--Env-----|---Action---|")
+            for (int i = 0; i < policy.arrayLength; i++) {
+                out.print(iu.makeString(i))
+                out.print("  |  ")
+                out.print(iu.makeString(policy[i]))
+                out.print("\n")
+            }
+            out.println("---------------------")
+			restAPI.setConfig(configs[policy[env]].string)
+            timer.sleep(OBSERVATION_WINDOW)
+
+            //consult pal for server state
+			HTTPResponse r = request.get("http://$DEFAULT_SERVER_IP:$DEFAULT_SERVER_PORT/meta/get_perception", null)
+			
+			//extract the env metrics
+			JSONElement doc = parser.parseDocument(r.content)
+			JSONElement se = null
+			
+			//NOTE: if your observation window is "too small" you may get zero reward - e.g. for a web server, if no requests were served in that time
+		    
+            dec rt = 0
+            //[0] = resquest count, [1] = textVol, [2] = imageVol
+            dec features[] = new dec[3]
+			if ((se = parser.getValue(doc, "metrics")) != null)
+				{
+                    dec vk = iu.intFromString(parser.getValue(se.children[0], "value").value)
+                    dec vt = iu.intFromString(parser.getValue(se.children[0], "count").value)
+                    rt = vk / vt
+                    features[0] = vt
+				}
+			
+			// "environment" data is acquired as below from the JSON data, if you want it...
+			if ((se = parser.getValue(doc, "events")) != null) {
+				for (int i = 0; i < se.children.arrayLength; i ++) {
+                        char name[] = parser.getValue(se.children[i], "name").value
+                        dec vk = iu.intFromString(parser.getValue(se.children[i], "value").value)
+                        dec vt = iu.intFromString(parser.getValue(se.children[i], "count").value)
+                        if (name == "text") {
+                            features[1] = vk
+                        }
+                        else if (name == "image") {
+                            features[2] = vk
+                        }
+				}
+			}
+            cluster.addValue(features, null)
+            out.print("rt: ")
+            out.print(du.makeString(rt))
+            out.print("\n")
+            if (rt >= MAX_RT) {
+                //if in incorrect env, switch envs and continue
+                int newEnv = currentEnv(cluster, features, env)
+                if(env != newEnv) { //could end up chasing your own tail here
+                    out.print("switching from Env: ")
+                    out.print(iu.makeString(env))
+                    out.print("\n")
+                    out.print("To Env: ")
+                    out.print(iu.makeString(newEnv))
+                    env = newEnv 
+                }
+                //else create new env and query offline learner
+                else {
+                    if (firstObservation != 1) {
+                        k+=1
+                    }
+                    Cluster clusters[] = cluster.cluster(k)
+                    policy = ol.getPolicy(clusters, rt, MAX_RT, OBSERVATION_WINDOW)
+                    firstObservation = 0
+                }
+            }
+            cluster.cluster(k)
+        }
+        return 0
+    }
+}

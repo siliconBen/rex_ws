@@ -1,0 +1,437 @@
+data RequestPatternRange {
+    dec imgVolMin
+    dec imgVolMax
+    dec textVolMin
+    dec textVolMax
+    dec reqCountMin
+    dec reqCountMax
+}
+component provides offline.OfflineConfigLearner requires util.Math ma, io.TextFile, util.Random ru, time.Calendar calendar, time.DateUtil dateUtil, io.File, net.TCPSocket, data.adt.List, data.StringUtil su, data.adt.HashTable, ml.cluster.Clustering, ml.rl.RL, io.Output out, pal.control.RestAPI, net.http.HTTPRequest request, time.Timer timer, data.IntUtil iu, data.DecUtil du, data.json.JSONParser parser, io.FileSystem fs {
+    const char DEFAULT_SERVER_IP[] = "127.0.0.1"
+    const int DEFAULT_SERVER_PORT = 8009
+    const int DEFAULT_WEB_PORT = 8090
+    const int RECV_BUF_SIZE = 512
+
+    int learningComplete
+
+    char serverRootDir[] = "/home/ben/Documents/PhD/rex_ws/web_server/htdocs/"
+    List serverImageEndpoints = new List()
+    List serverTextEndpoints = new List()
+
+    List serverImageEndpointData = new List()
+    List serverTextEndpointData = new List()
+
+    char[] OfflineConfigLearner:getEndpointFileTypeString(OfflineServerEndpoint ep) {
+        return iu.makeString(ep.fileType)
+    }
+
+    char[] OfflineConfigLearner:getEndpointFileSizeString(OfflineServerEndpoint ep) {
+        return iu.makeString(ep.fileSize)
+    }
+
+    dec OfflineConfigLearner:returnSomething() {
+        return 1.0
+    }
+
+    OfflineServerEndpoint findClosestSize(List serverEndpointData, dec toFind) {
+        for (int i = 0; i < serverEndpointData.getLength(); i++) {
+            OfflineServerEndpoint x = serverEndpointData.getIndex(i)
+        }
+        int listLen = serverEndpointData.getLength()
+        dec d_listLen = listLen
+        if (listLen == 1) {
+            OfflineServerEndpoint x = serverEndpointData.getIndex(0)
+            return x
+        }
+        int pivot = ma.floor(d_listLen/2)
+        OfflineServerEndpoint x = serverEndpointData.getIndex(pivot)
+        List lower = new List()
+        for (int i = 0; i < pivot; i++) {
+            OfflineServerEndpoint y = serverEndpointData.getIndex(i)
+            lower.add(y)
+        }
+        List higher = new List()
+        for (int i = pivot; i < listLen; i++) {
+            OfflineServerEndpoint y = serverEndpointData.getIndex(i)
+            higher.add(y)
+        }
+        OfflineServerEndpoint pivotCompare = lower.getIndex(lower.getLength()-1)
+        if ( (toFind - x.fileSize) < (toFind - pivotCompare.fileSize)) {
+            return findClosestSize(higher, toFind)
+        }
+        else {
+            return findClosestSize(lower, toFind)
+        }
+    }
+
+    //sorts the serverEndpointData lists by size 
+    List sortEndpointData(List serverEndpointData) {
+        int len = serverEndpointData.getLength() 
+        if (len == 0) {return null}
+        else if (len == 1) {return serverEndpointData}
+
+        int lastElIndex = len-1
+        OfflineServerEndpoint pivotObj = serverEndpointData.getIndex(lastElIndex)
+        dec pivot = pivotObj.fileSize
+
+        List lower = new List()
+        List higher = new List()
+
+        for (int i = 0; i < lastElIndex; i++) {
+            OfflineServerEndpoint x = serverEndpointData.getIndex(i)
+            if (x.fileSize < pivot) {
+                lower.add(x)
+            }
+            else {
+                higher.add(x)
+            }
+        }
+
+        lower = sortEndpointData(lower)
+        higher = sortEndpointData(higher)
+
+        List sorted = new List()
+        //concat lower and higher with pivot in the middle
+        if (lower != null) {
+            for (int i = 0; i < lower.getLength(); i++) {
+                OfflineServerEndpoint x = lower.getIndex(i)
+                sorted.add(x)
+            }
+        }
+        sorted.add(pivotObj)
+        if (higher != null) {
+            for (int i = 0; i < higher.getLength(); i++) {
+                OfflineServerEndpoint x = higher.getIndex(i)
+                sorted.add(x)
+            }
+        }
+
+        return sorted
+    }
+
+    void OfflineConfigLearner:initilise() {
+        ru.setSeed(dateUtil.toMilliseconds(calendar.getTime()))
+        learningComplete = 0
+        //open dir that contains resources for webserver
+        FileEntry serverResources[] = fs.getDirectoryContents(serverRootDir)
+        //add all entries ending .jpg or .html to serverEndpoints
+        for (int i = 0; i < serverResources.arrayLength; i++) {
+            if (su.endsWith(serverResources[i].name, ".jpg")) {
+                serverImageEndpoints.add(new String(serverResources[i].name))
+            }
+            else if (su.endsWith(serverResources[i].name, ".html")) {
+                serverTextEndpoints.add(new String(serverResources[i].name))
+            }
+        }
+        //open up a connection to the webserver and request each endpoint storing the information
+        //about the endpoint, size, filetype etc
+        for (int i = 0; i < serverImageEndpoints.getLength(); i++) {
+            String x = serverImageEndpoints.getIndex(i)
+            char req[] = new char[]("GET ", "/", x.string, " HTTP/1.1\r\n\r\n")
+
+            TCPSocket s = new TCPSocket()
+            s.connect(DEFAULT_SERVER_IP, DEFAULT_WEB_PORT)
+            
+            s.send(req)
+            int totalReceived = 0
+            byte resp[]
+            while ((resp = s.recv(RECV_BUF_SIZE)).arrayLength > 0) {
+                totalReceived += resp.arrayLength
+            }
+
+            serverImageEndpointData.add(new OfflineServerEndpoint(x, IMAGE, totalReceived))
+            
+            s.disconnect()
+        }
+        for (int i = 0; i < serverTextEndpoints.getLength(); i++) {
+            String x = serverTextEndpoints.getIndex(i)
+            char req[] = new char[]("GET ", "/", x.string, " HTTP/1.1\r\n\r\n")
+
+            TCPSocket s = new TCPSocket()
+            s.connect(DEFAULT_SERVER_IP, DEFAULT_WEB_PORT)
+           
+            s.send(req)
+            int totalReceived = 0
+            byte resp[]
+            while ((resp = s.recv(RECV_BUF_SIZE)).arrayLength > 0) {
+                totalReceived += resp.arrayLength
+            }
+
+            serverTextEndpointData.add(new OfflineServerEndpoint(x, TEXT, totalReceived))
+            
+            s.disconnect()
+        }
+        serverTextEndpointData = sortEndpointData(serverTextEndpointData)
+        serverImageEndpointData = sortEndpointData(serverImageEndpointData)
+        return
+    }
+
+    //Author: Roberto Filho	
+	dec scaleCost(dec cost, dec lowCost, dec highCost)
+		{
+		//here we lock the cost between the given range, where anything falling outside of that range is just set of highCost
+		// - we then do 1 - cost to convert to reward
+		
+		//first truncate at high/low cost
+		if (cost > highCost)
+			{
+			cost = highCost
+			}
+			else if (cost < lowCost)
+			{
+			cost = lowCost
+			}
+		
+		//shift negative low
+		if (lowCost < 0.0)
+			{
+			dec mod = lowCost / -1.0
+			cost += mod
+			lowCost += mod
+			highCost += mod
+			}
+		
+		//now convert the range into 0.0 -> 1.0
+		dec scaledCost = cost / highCost
+		
+		return scaledCost
+		}
+
+    //Author: Roberto Filho	
+	dec costToReward(dec cost)
+		{
+		//invert to get reward
+		return 1.0 - cost
+		}
+
+    int findConfig(dec rt, int maxRt, int observationWindow) {
+        dec normalisation_low = 0.0
+        dec normalisation_high = 100.0
+        
+		//connect to rest API of PAL and set config to index 0 (or any other index you like...)
+		RestAPI restAPI = new RestAPI(DEFAULT_SERVER_IP, DEFAULT_SERVER_PORT)
+		
+		String configs[] = restAPI.getConfigs()
+		
+		RL learning = new RL()
+		learning.setExplorationPenalty(1.0)
+		learning.setActions(configs)
+		
+        int i = 0
+        int bestConf
+        int bestConfRt = 1000
+		while (i < 10) {
+			//get the learner algorithm's next action, and set that action (composition) in PAL
+			int ndx = learning.getAction()
+			
+			//out.println("choosing action $ndx") // $(configs[ndx].string)")
+			
+			restAPI.setConfig(configs[ndx].string)
+			
+			//wait for some time...
+			timer.sleep(observationWindow)
+			
+			//get the perception data from PAL (which is JSON-encoded)
+			HTTPResponse r = request.get("http://$DEFAULT_SERVER_IP:$DEFAULT_SERVER_PORT/meta/get_perception", null)
+			
+			//extract the reward from the JSON data
+			JSONElement doc = parser.parseDocument(r.content)
+			JSONElement se = null
+			
+			//NOTE: if your observation window is "too small" you may get zero reward - e.g. for a web server, if no requests were served in that time
+			dec reward = 0.0
+			
+			if ((se = parser.getValue(doc, "metrics")) != null) {
+				dec vk = iu.intFromString(parser.getValue(se.children[0], "value").value)
+				dec vt = iu.intFromString(parser.getValue(se.children[0], "count").value)
+				
+				rt = vk / vt
+				
+				reward = rt
+			}
+            else {
+                out.println("metrics were null mate")
+            }
+            out.print("offline rt: ")
+            out.print(du.makeString(rt))
+            out.print("\n")
+            if (rt < bestConfRt) {
+                bestConf = ndx
+                bestConfRt = rt
+            }
+			
+			//normalise the reward (which is actually currently "cost", since lower is better)
+			dec normalised = scaleCost(reward, normalisation_low, normalisation_high)
+			
+			//convert what is actually "cost" into reward, where higher is better (ML algorithms assume reward as input, not cost)
+			dec finalReward = costToReward(normalised)
+			
+			//out.println(" - calcu for lated reward:")
+			//out.println("    - original $reward")
+			//out.println("    - normalised $normalised")
+			//out.println("    - reward $finalReward")
+			
+			//send reward data for this action to the learning algorithm
+			learning.setReward(finalReward)
+            i++
+		}
+        learningComplete = 1
+        return bestConf
+    }
+
+    //returns the name of the generated file
+    //cluster data dimention 0 = request count
+
+    //dimention 1 = response time
+    //dimention 2 = text vol
+    //dimention 3 = img vol
+    RequestPatternRange extractRequestPatternRanges(Cluster range, int featureCount) {
+
+        //extrace the feature ranges from the Cluster
+        //feature 1 min
+        RequestPatternRange extractedRange = new RequestPatternRange(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+        if (range.members.arrayLength > 0) {
+            extractedRange.imgVolMin = range.members[0].values[2]
+            extractedRange.imgVolMax = range.members[0].values[2]
+            extractedRange.textVolMin = range.members[0].values[1]
+            extractedRange.textVolMax = range.members[0].values[1]
+            extractedRange.reqCountMin = range.members[0].values[0]
+            extractedRange.reqCountMax = range.members[0].values[0]
+            for (int i = 1; i < range.members.arrayLength; i++) {
+                ClusterPoint member = range.members[i] 
+                if (member.values[1] > extractedRange.textVolMax) {
+                    extractedRange.textVolMax = member.values[1]
+                }
+                else if (member.values[1] < extractedRange.textVolMin) {
+                    extractedRange.textVolMin = member.values[1]
+                }
+                if (member.values[2] > extractedRange.imgVolMax) {
+                    extractedRange.imgVolMax = member.values[2]
+                }
+                else if (member.values[2] < extractedRange.imgVolMin) {
+                    extractedRange.imgVolMin = member.values[2]
+                }
+                if (member.values[0] < extractedRange.reqCountMin) {
+                    extractedRange.reqCountMin = member.values[0]
+                }
+                else if (member.values[0] > extractedRange.reqCountMax) {
+                    extractedRange.reqCountMax = member.values[0]
+                }
+            }
+        }
+
+        return extractedRange
+    }
+
+    List generateSynthRequestPattern(RequestPatternRange ranges) {
+        List synthReqPattern = new List()
+        //pick random number in range of observed req count
+        int reqCount = 0
+        if (ranges.reqCountMin != ranges.reqCountMax) {
+            reqCount = ru.getDec(ranges.reqCountMin, ranges.reqCountMax)
+        }
+        else {
+            reqCount = ranges.reqCountMin
+        }
+
+        //find ratio of img to text data transmitted from two rnd numbers in text and image ranges
+        //split req count by that ratio
+        dec imgTransferBytes = 0
+        if (ranges.imgVolMin != ranges.imgVolMax) {
+            imgTransferBytes = ru.getDec(ranges.imgVolMin, ranges.imgVolMax)
+        }
+        else {
+            imgTransferBytes = ranges.imgVolMin
+        }
+        dec textTransferBytes = 0
+        if (ranges.textVolMin != ranges.textVolMax) {
+            textTransferBytes = ru.getDec(ranges.textVolMin, ranges.textVolMax)
+        }
+        else {
+            textTransferBytes = ranges.textVolMin
+        }
+        dec ratio
+        dec imgReqCount
+        dec textReqCount
+        ratio = textTransferBytes / (imgTransferBytes+textTransferBytes)
+        textReqCount = reqCount * ratio
+        ratio = imgTransferBytes / (textTransferBytes+imgTransferBytes)
+        imgReqCount = reqCount * ratio
+
+        int i_imgReqCount = imgReqCount
+        int i_texReqCount = textReqCount
+
+        //find bytes per req
+        dec textBytesPerReq = 0
+        dec imgBytesPerReq = 0
+        if(i_texReqCount != 0) {textBytesPerReq = textTransferBytes / i_texReqCount}
+        if(i_imgReqCount != 0) {imgBytesPerReq = imgTransferBytes / i_imgReqCount}
+
+        //find req that is closest to this
+        OfflineServerEndpoint textClosest = findClosestSize(serverTextEndpointData, textBytesPerReq)
+        OfflineServerEndpoint imgClosest = findClosestSize(serverImageEndpointData, imgBytesPerReq)
+
+        //add req to list for n counts
+        for (int i = 0; i < i_texReqCount; i++) {
+            synthReqPattern.add(textClosest)
+        }
+        for (int i = 0; i < i_imgReqCount; i++) {
+            synthReqPattern.add(imgClosest)
+        }
+
+        return synthReqPattern
+    }
+    
+    //takes a http request file and sends those requests to the offline server
+    //designed to be executed asynchornously
+    void sendHTTPTraffic(List synthReqPattern, int observationWindow) {
+        //run for timerMultiplier number of observationWindows
+        while(learningComplete == 0) {
+            DateTime start = calendar.getTime()
+            int timeDiff = 0
+            for (int j = 0; j < synthReqPattern.getLength(); j++) {
+                OfflineServerEndpoint x = synthReqPattern.getIndex(j)
+                char req[] = new char[]("GET ", "/", x.endpoint.string, " HTTP/1.1\r\n\r\n")
+
+                TCPSocket s = new TCPSocket()
+                s.connect(DEFAULT_SERVER_IP, DEFAULT_WEB_PORT)
+                s.send(req)
+                byte resp[]
+                while ((resp = s.recv(RECV_BUF_SIZE)).arrayLength > 0) {
+                }
+                
+                s.disconnect()
+            }
+                
+            DateTime end = calendar.getTime()
+            DateTime diff = dateUtil.diff(start, end)
+            timeDiff = dateUtil.toMilliseconds(diff) //ms
+            while (timeDiff < observationWindow) {
+                end = calendar.getTime()
+                diff = dateUtil.diff(start, end)
+                timeDiff = dateUtil.toMilliseconds(diff) //ms
+            }
+        }
+    }
+
+    int[] OfflineConfigLearner:getPolicy(Cluster clusters[], dec responseTime, dec maxResponseTime, int observationWindow) {
+        int policy[] = new int[clusters.arrayLength]
+        //generate some traffic within classified ranges
+        List ranges = new List() 
+        for (int i = 0; i < clusters.arrayLength; i++) {
+            ranges.add(extractRequestPatternRanges(clusters[i], 3))
+        }
+        //query the pal to get persception
+        for (int i = 0; i < clusters.arrayLength; i++) {
+            //Thread t = asynch::sendHTTPTraffic(ranges.getIndex(i), observationWindow, 20)
+            List synthReqPattern = generateSynthRequestPattern(ranges.getIndex(i))
+            Thread t = asynch::sendHTTPTraffic(synthReqPattern, observationWindow) 
+            int config = findConfig(responseTime, maxResponseTime, observationWindow)            
+            policy[i] = config
+            t.join()
+            learningComplete = 0
+        }
+        return policy
+    }
+}
+

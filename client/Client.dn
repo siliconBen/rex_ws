@@ -75,7 +75,7 @@ component provides App requires io.TextFile, net.TCPSocket, io.Output out, time.
 		if (params.arrayLength == 1)
 			path = params[0].string
 			else
-			path = "client_default.txt"
+			path = "client_big_img.txt"
 		
 		TextFile fd = new TextFile(path, File.FILE_ACCESS_READ)
 		

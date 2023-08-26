@@ -1,0 +1,20 @@
+uses data.adt.HashTable
+uses ml.cluster.Clustering
+uses data.String
+
+const int IMAGE = 0
+const int TEXT = 1
+
+data OfflineServerEndpoint {
+    String endpoint
+    int fileType
+    int fileSize
+}
+
+interface OfflineConfigLearner {
+    dec returnSomething()
+    int[] getPolicy(Cluster clusters[], dec responseTime, dec maxResponseTime, int observationWindow)
+    void initilise()
+    char[] getEndpointFileTypeString(OfflineServerEndpoint ep)
+    char[] getEndpointFileSizeString(OfflineServerEndpoint ep)
+}

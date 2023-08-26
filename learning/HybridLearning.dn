@@ -9,17 +9,16 @@ const int OBSERVATION_WINDOW = 1000 //ms
 
 const dec e = 2.71828
 
-component provides App requires io.Output out, pal.control.RestAPI, net.http.HTTPRequest request, ml.rl.RL, time.Timer timer, data.IntUtil iu, data.DecUtil du, data.json.JSONParser parser, ml.cluster.Clustering, util.Random, util.Math maff {
+component provides App requires data.adt.HashTable, io.Output out, pal.control.RestAPI, net.http.HTTPRequest request, ml.rl.RL, time.Timer timer, data.IntUtil iu, data.DecUtil du, data.json.JSONParser parser, ml.cluster.Clustering, util.Random, util.Math maff {
 
 	dec normalisation_low = 0.0
 	dec normalisation_high = 100.0
 
+    HashTable detectedEnvs = new HashTable()
+
     //set params for clustering algorithm (dataPoints + k decided by RL)
     int dimentions = 3 //events, responsetime, range in first two since t = 0
-    int k = 5
-
-    //set the current environment (0 -> k-1)
-    int env = 0
+    int k = 1
 
     String actions[] = new String[3]
     actions[0] = new String("new env")
@@ -121,13 +120,36 @@ component provides App requires io.Output out, pal.control.RestAPI, net.http.HTT
         if (reward < 0.0) reward = 0.0
         return reward
     }
+
+    dec evaluateClusterSimple(int action) {
+        out.print(iu.makeString(detectedEnvs.getLength()))
+        out.print("\n")
+        out.print(iu.makeString(k))
+        out.print("\n")
+        if (k == detectedEnvs.getLength()) {
+            //if (actions[action] == "do nothing")
+            if (action == 2)
+            {
+                out.print("Rewarded 2\n")
+                return 2.0
+            }
+            else {
+                out.print("Rewarded 1\n")
+                return 1.0
+            }
+        }
+        else {
+            out.print("Rewarded 0\n")
+            return 0.0
+        }
+    }
     
     int App:main(AppParam params[]) {
 		//connect to rest API of PAL and set config to index 0 (or any other index you like...)
 		RestAPI restAPI = new RestAPI(DEFAULT_SERVER_IP, DEFAULT_SERVER_PORT)
 		
 		RL onlineLearning = new RL()
-		onlineLearning.setExplorationPenalty(10.0)
+		onlineLearning.setExplorationPenalty(1.0)
 		onlineLearning.setActions(actions)
 
         Clustering cluster = new Clustering(dimentions)
@@ -156,9 +178,6 @@ component provides App requires io.Output out, pal.control.RestAPI, net.http.HTT
                     else if (envModel[0] < dim1[0]) {
                         dim1[0] = envModel[0]
                     }
-                    out.print("envModel.0:")
-                    out.print(du.makeString(envModel[0]))
-                    out.print("\n")
 				
 				}
 			
@@ -173,15 +192,17 @@ component provides App requires io.Output out, pal.control.RestAPI, net.http.HTT
                         dec vt = iu.intFromString(parser.getValue(se.children[i], "count").value)
                         
                         envModel[1] = vk / vt
+                        if (detectedEnvs.get(du.makeString(envModel[1])) == null) {
+                            out.print("event not already encountered\n")
+                            detectedEnvs.put(du.makeString(envModel[1]), new Data())
+                        }
                         if (envModel[1] > dim2[1]) {
                             dim2[1] = envModel[1]
                         }
                         else if (envModel[1] < dim2[0]) {
                             dim2[0] = envModel[1]
                         }
-                        out.print(name)
-                        out.print("\n")
-                        out.print("envModel.1:")
+                        out.print("envModel.1:\n")
                         out.print(du.makeString(envModel[1]))
                         out.print("\n")
 					}
@@ -213,7 +234,7 @@ component provides App requires io.Output out, pal.control.RestAPI, net.http.HTT
                 timer.sleep(OBSERVATION_WINDOW)
 
                 //evaluate the clusters
-                dec reward = evaluateCluster(clusters)
+                dec reward = evaluateClusterSimple(ndx)
                 previousClusters = clusters
 
                 //give reward
