@@ -1,3 +1,5 @@
+uses offline.learning_types.Policy
+
 const char DEFAULT_SERVER_IP[] = "127.0.0.1"
 const int DEFAULT_SERVER_PORT = 8008
 const char OFFLINE_DEFAULT_SERVER_IP[] = "127.0.0.1"
@@ -6,16 +8,25 @@ const int OFFLINE_DEFAULT_SERVER_PORT = 8080
 const int OBSERVATION_WINDOW = 1000 //ms
 const dec MAX_RT = 1.0 //ms
 
-component provides App requires data.adt.HashTable, io.Output out, pal.control.RestAPI, net.http.HTTPRequest request, time.Timer timer, data.IntUtil iu, data.DecUtil du, data.json.JSONParser parser, ml.cluster.Clustering, offline.OfflineConfigLearner ol {
+component provides App requires time.DateUtil dateUtil, data.StringUtil su, data.adt.HashTable, io.Output out, pal.control.RestAPI, net.http.HTTPRequest request, time.Timer timer, data.IntUtil iu, data.DecUtil du, data.json.JSONParser parser, ml.cluster.Clustering, offline.OfflineConfigLearner ol, data.adt.List{
 
     //set params for clustering algorithm
     const int featuresCount = 3
     int k = 1
 
-    int policy[] = new int[1]
-    policy[0] = 0
+    List policy
+    Policy bootstrap = new Policy(0, 0, 0)
     int env = 0 //currently operating in this env
 
+    Policy getPolicyForEnv(List policyList, int enviro) {
+        for(int i = 0; i < policyList.getLength(); i++) {
+            Policy cur = policyList.getIndex(i)
+            if (cur.env == enviro) {
+                return cur
+            }
+        }
+        return null
+    }
 
     int currentEnv(Clustering cluster, dec features[], int enviro) {
         if (policy.arrayLength == 1 && enviro == 0) {
@@ -55,8 +66,27 @@ component provides App requires data.adt.HashTable, io.Output out, pal.control.R
         return 999
     }
 
+    DateTime dateFromStr(char str[]) {
+        //ignore first 11 chars (year)
+        char time[] = new char[10] //change to 11 if need null term
+        for (int i = 11; i < str.arrayLength; i++) {
+            time[i-11] = str[i]
+        }
+        String tokens[] = su.explode(time, ":")
+        DateTime start = new DateTime()
+        int hour = iu.intFromString(tokens[0].string)
+        start.hour = hour
+        int min = iu.intFromString(tokens[1].string)
+        start.minute = min
+        int sec = iu.intFromString(tokens[2].string)
+        start.second = sec
+        return start
+    }
+
     int App:main(AppParam params[]) {
         ol.initilise()
+        policy = new List()
+        policy.add(bootstrap)
 		//connect to rest API of PAL and set config to index 0 (or any other index you like...)
 		RestAPI restAPI = new RestAPI(DEFAULT_SERVER_IP, DEFAULT_SERVER_PORT)
 
@@ -71,18 +101,22 @@ component provides App requires data.adt.HashTable, io.Output out, pal.control.R
             out.print(iu.makeString(env))
             out.print("\n")
             out.print("env count: ")
-            out.print(iu.makeString(policy.arrayLength))
+            out.print(iu.makeString(policy.getLength()))
             out.print("\n")
             out.println("---------Policy---------")
-            out.println("|--Env-----|---Action---|")
-            for (int i = 0; i < policy.arrayLength; i++) {
-                out.print(iu.makeString(i))
+            out.println("|--Env-----|---Action---|---Constraint---|")
+            for (int i = 0; i < policy.getLength(); i++) {
+                Policy x = policy.getIndex(i)
+                out.print(iu.makeString(x.env))
                 out.print("  |  ")
-                out.print(iu.makeString(policy[i]))
+                out.print(iu.makeString(x.action))
+                out.print("  |  ")
+                out.print(du.makeString(x.maxRT))
                 out.print("\n")
             }
             out.println("---------------------")
-			restAPI.setConfig(configs[policy[env]].string)
+            Policy currentPolicy = getPolicyForEnv(policy, env)
+			restAPI.setConfig(configs[currentPolicy.action].string)
             timer.sleep(OBSERVATION_WINDOW)
 
             //consult pal for server state
@@ -94,36 +128,45 @@ component provides App requires data.adt.HashTable, io.Output out, pal.control.R
 			
 			//NOTE: if your observation window is "too small" you may get zero reward - e.g. for a web server, if no requests were served in that time
 		    
-            dec rt = 0
+            dec rt = 0.0
             //[0] = resquest count, [1] = textVol, [2] = imageVol
             dec features[] = new dec[3]
 			if ((se = parser.getValue(doc, "metrics")) != null)
 				{
                     dec vk = iu.intFromString(parser.getValue(se.children[0], "value").value)
                     dec vt = iu.intFromString(parser.getValue(se.children[0], "count").value)
-                    rt = vk / vt
+                    char st[] = parser.getValue(se.children[0], "startTime").value
+                    char et[] = parser.getValue(se.children[0], "endTime").value
+                    DateTime start = dateFromStr(st)
+                    DateTime end = dateFromStr(et)
+                    DateTime diff = dateUtil.diff(start, end)
+
+                    int rt_int = dateUtil.toMilliseconds(diff)
+                    rt = rt_int / vt
+
                     features[0] = vt
 				}
 			
 			// "environment" data is acquired as below from the JSON data, if you want it...
 			if ((se = parser.getValue(doc, "events")) != null) {
 				for (int i = 0; i < se.children.arrayLength; i ++) {
-                        char name[] = parser.getValue(se.children[i], "name").value
-                        dec vk = iu.intFromString(parser.getValue(se.children[i], "value").value)
-                        dec vt = iu.intFromString(parser.getValue(se.children[i], "count").value)
-                        if (name == "text") {
-                            features[1] = vk
-                        }
-                        else if (name == "image") {
-                            features[2] = vk
-                        }
+                    char name[] = parser.getValue(se.children[i], "name").value
+                    dec vk = iu.intFromString(parser.getValue(se.children[i], "value").value)
+                    dec vt = iu.intFromString(parser.getValue(se.children[i], "count").value)
+                    if (name == "text") {
+                        features[1] = vk
+                    }
+                    else if (name == "image") {
+                        features[2] = vk
+                    }
 				}
 			}
             cluster.addValue(features, null)
             out.print("rt: ")
             out.print(du.makeString(rt))
             out.print("\n")
-            if (rt >= MAX_RT) {
+            
+            if (rt >= currentPolicy.maxRT) {
                 //if in incorrect env, switch envs and continue
                 int newEnv = currentEnv(cluster, features, env)
                 if(env != newEnv) { //could end up chasing your own tail here
@@ -140,7 +183,11 @@ component provides App requires data.adt.HashTable, io.Output out, pal.control.R
                         k+=1
                     }
                     Cluster clusters[] = cluster.cluster(k)
-                    policy = ol.getPolicy(clusters, rt, MAX_RT, OBSERVATION_WINDOW)
+                    Policy policyArr[] = ol.getPolicy(clusters, OBSERVATION_WINDOW)
+                    policy = new List()
+                    for(int i = 0; i < policyArr.arrayLength; i++) {
+                        policy.add(policyArr[i])
+                    }
                     firstObservation = 0
                 }
             }

@@ -1,3 +1,4 @@
+uses offline.learning_types.Policy
 data RequestPatternRange {
     dec imgVolMin
     dec imgVolMax
@@ -6,6 +7,12 @@ data RequestPatternRange {
     dec reqCountMin
     dec reqCountMax
 }
+
+data ConfigResponseTimeTuple {
+    int config
+    dec rt
+}
+
 component provides offline.OfflineConfigLearner requires util.Math ma, io.TextFile, util.Random ru, time.Calendar calendar, time.DateUtil dateUtil, io.File, net.TCPSocket, data.adt.List, data.StringUtil su, data.adt.HashTable, ml.cluster.Clustering, ml.rl.RL, io.Output out, pal.control.RestAPI, net.http.HTTPRequest request, time.Timer timer, data.IntUtil iu, data.DecUtil du, data.json.JSONParser parser, io.FileSystem fs {
     const char DEFAULT_SERVER_IP[] = "127.0.0.1"
     const int DEFAULT_SERVER_PORT = 8009
@@ -204,7 +211,25 @@ component provides offline.OfflineConfigLearner requires util.Math ma, io.TextFi
 		return 1.0 - cost
 		}
 
-    int findConfig(dec rt, int maxRt, int observationWindow) {
+    DateTime dateFromStr(char str[]) {
+        //ignore first 11 chars (year)
+        char time[] = new char[10] //change to 11 if need null term
+        for (int i = 11; i < str.arrayLength; i++) {
+            time[i-11] = str[i]
+        }
+        String tokens[] = su.explode(time, ":")
+        DateTime start = new DateTime()
+        int hour = iu.intFromString(tokens[0].string)
+        start.hour = hour
+        int min = iu.intFromString(tokens[1].string)
+        start.minute = min
+        int sec = iu.intFromString(tokens[2].string)
+        start.second = sec
+        return start
+    }
+
+    ConfigResponseTimeTuple findConfig(int observationWindow) {
+        ConfigResponseTimeTuple returnVal = new ConfigResponseTimeTuple()
         dec normalisation_low = 0.0
         dec normalisation_high = 100.0
         
@@ -217,10 +242,9 @@ component provides offline.OfflineConfigLearner requires util.Math ma, io.TextFi
 		learning.setExplorationPenalty(1.0)
 		learning.setActions(configs)
 		
-        int i = 0
         int bestConf
         int bestConfRt = 1000
-		while (i < 10) {
+		for (int i = 0; i < 4; i++) {
 			//get the learner algorithm's next action, and set that action (composition) in PAL
 			int ndx = learning.getAction()
 			
@@ -241,11 +265,18 @@ component provides offline.OfflineConfigLearner requires util.Math ma, io.TextFi
 			//NOTE: if your observation window is "too small" you may get zero reward - e.g. for a web server, if no requests were served in that time
 			dec reward = 0.0
 			
+            dec rt = 0.0
 			if ((se = parser.getValue(doc, "metrics")) != null) {
 				dec vk = iu.intFromString(parser.getValue(se.children[0], "value").value)
 				dec vt = iu.intFromString(parser.getValue(se.children[0], "count").value)
-				
-				rt = vk / vt
+                char st[] = parser.getValue(se.children[0], "startTime").value
+                char et[] = parser.getValue(se.children[0], "endTime").value
+                DateTime start = dateFromStr(st)
+                DateTime end = dateFromStr(et)
+                DateTime diff = dateUtil.diff(start, end)
+
+                int rt_int = dateUtil.toMilliseconds(diff)
+                rt = rt_int / vt
 				
 				reward = rt
 			}
@@ -266,21 +297,43 @@ component provides offline.OfflineConfigLearner requires util.Math ma, io.TextFi
 			//convert what is actually "cost" into reward, where higher is better (ML algorithms assume reward as input, not cost)
 			dec finalReward = costToReward(normalised)
 			
-			//out.println(" - calcu for lated reward:")
-			//out.println("    - original $reward")
-			//out.println("    - normalised $normalised")
-			//out.println("    - reward $finalReward")
-			
 			//send reward data for this action to the learning algorithm
 			learning.setReward(finalReward)
-            i++
 		}
-        learningComplete = 1
-        return bestConf
-    }
+        //keep getting perception from offline server to find a resonable new max rt for this learned config
+        dec newMaxRT = 0.0
+        for (int i = 0; i < 10; i++) {
+			restAPI.setConfig(configs[bestConf].string)
+			timer.sleep(observationWindow)
+			HTTPResponse r = request.get("http://$DEFAULT_SERVER_IP:$DEFAULT_SERVER_PORT/meta/get_perception", null)
+			JSONElement doc = parser.parseDocument(r.content)
+			JSONElement se = null
+            dec rt = 0.0
+			if ((se = parser.getValue(doc, "metrics")) != null) {
+				dec vk = iu.intFromString(parser.getValue(se.children[0], "value").value)
+				dec vt = iu.intFromString(parser.getValue(se.children[0], "count").value)
+                char st[] = parser.getValue(se.children[0], "startTime").value
+                char et[] = parser.getValue(se.children[0], "endTime").value
+                DateTime start = dateFromStr(st)
+                DateTime end = dateFromStr(et)
+                DateTime diff = dateUtil.diff(start, end)
 
-    //returns the name of the generated file
-    //cluster data dimention 0 = request count
+                int rt_int = dateUtil.toMilliseconds(diff)
+                rt = rt_int / vt
+				
+                if (rt > newMaxRT) {
+                    newMaxRT = rt
+                }
+			}
+            else {
+                out.println("find max: metrics were null mate")
+            }
+        }
+        returnVal.config = bestConf
+        returnVal.rt = newMaxRT
+        learningComplete = 1
+        return returnVal
+    }
 
     //dimention 1 = response time
     //dimention 2 = text vol
@@ -406,32 +459,44 @@ component provides offline.OfflineConfigLearner requires util.Math ma, io.TextFi
             DateTime end = calendar.getTime()
             DateTime diff = dateUtil.diff(start, end)
             timeDiff = dateUtil.toMilliseconds(diff) //ms
-            while (timeDiff < observationWindow) {
-                end = calendar.getTime()
-                diff = dateUtil.diff(start, end)
-                timeDiff = dateUtil.toMilliseconds(diff) //ms
-            }
+            //while (timeDiff < observationWindow) {
+                //end = calendar.getTime()
+                //diff = dateUtil.diff(start, end)
+                //timeDiff = dateUtil.toMilliseconds(diff) //ms
+            //}
         }
     }
 
-    int[] OfflineConfigLearner:getPolicy(Cluster clusters[], dec responseTime, dec maxResponseTime, int observationWindow) {
-        int policy[] = new int[clusters.arrayLength]
-        //generate some traffic within classified ranges
+    Policy[] OfflineConfigLearner:getPolicy(Cluster clusters[], int observationWindow) {
+        //find number of configs for web server
+		RestAPI restAPI = new RestAPI(DEFAULT_SERVER_IP, DEFAULT_SERVER_PORT)
+		String configs[] = restAPI.getConfigs()
+        int numOfConfigs = configs.arrayLength
+
+        List policy = new List()
+
         List ranges = new List() 
         for (int i = 0; i < clusters.arrayLength; i++) {
             ranges.add(extractRequestPatternRanges(clusters[i], 3))
         }
         //query the pal to get persception
         for (int i = 0; i < clusters.arrayLength; i++) {
-            //Thread t = asynch::sendHTTPTraffic(ranges.getIndex(i), observationWindow, 20)
             List synthReqPattern = generateSynthRequestPattern(ranges.getIndex(i))
             Thread t = asynch::sendHTTPTraffic(synthReqPattern, observationWindow) 
-            int config = findConfig(responseTime, maxResponseTime, observationWindow)            
-            policy[i] = config
+            ConfigResponseTimeTuple config = findConfig(observationWindow)            
+            policy.add(new Policy(i, config.config, config.rt))
             t.join()
             learningComplete = 0
         }
-        return policy
+
+        Policy policyArr[] = new Policy[policy.getLength()]
+        for (int i = 0; i < policy.getLength(); i++) {
+            Policy x = policy.getIndex(i)
+            policyArr[i] = x
+        }
+
+        //generate some traffic within classified ranges
+        return policyArr
     }
 }
 

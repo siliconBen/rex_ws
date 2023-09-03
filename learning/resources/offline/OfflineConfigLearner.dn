@@ -1,6 +1,8 @@
 uses data.adt.HashTable
 uses ml.cluster.Clustering
 uses data.String
+uses data.adt.List
+uses offline.learning_types.Policy
 
 const int IMAGE = 0
 const int TEXT = 1
@@ -13,7 +15,7 @@ data OfflineServerEndpoint {
 
 interface OfflineConfigLearner {
     dec returnSomething()
-    int[] getPolicy(Cluster clusters[], dec responseTime, dec maxResponseTime, int observationWindow)
+    Policy[] getPolicy(Cluster clusters[], int observationWindow)
     void initilise()
     char[] getEndpointFileTypeString(OfflineServerEndpoint ep)
     char[] getEndpointFileSizeString(OfflineServerEndpoint ep)

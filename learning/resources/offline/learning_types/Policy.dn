@@ -1,0 +1,5 @@
+data Policy {
+    int env
+    int action
+    dec maxRT
+}
