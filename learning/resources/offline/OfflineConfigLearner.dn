@@ -1,5 +1,5 @@
 uses data.adt.HashTable
-uses ml.cluster.Clustering
+uses clustering.ChangePointClustering
 uses data.String
 uses data.adt.List
 uses offline.learning_types.Policy
@@ -15,7 +15,7 @@ data OfflineServerEndpoint {
 
 interface OfflineConfigLearner {
     dec returnSomething()
-    Policy[] getPolicy(Cluster clusters[], int observationWindow)
+    Policy getPolicy(Cluster cluster, int CurrentOnlineEnv, int observationWindow)
     void initilise()
     char[] getEndpointFileTypeString(OfflineServerEndpoint ep)
     char[] getEndpointFileSizeString(OfflineServerEndpoint ep)

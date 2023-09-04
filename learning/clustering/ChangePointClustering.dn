@@ -1,0 +1,70 @@
+component provides clustering.ChangePointClustering requires data.adt.List, io.Output out, data.DecUtil du {
+    List clusters
+
+    void ChangePointClustering:init() {
+        clusters = new List()
+        clusters.add(new Cluster())
+        Cluster x = clusters.getIndex(0)
+        x.members = new List()
+    }
+
+    void ChangePointClustering:addDataPoint(dec dataPoint[]) {
+        DataPoint newPoint = new DataPoint()
+        newPoint.point = dataPoint
+        int numOfClusters = clusters.getLength() 
+        Cluster toAddTo = clusters.getIndex(numOfClusters-1)
+        toAddTo.members.add(newPoint)
+        return
+    }
+    
+    int ChangePointClustering:getNumOfDataPoints() {
+        int returnVal = 0
+        for (int i = 0; i < clusters.getLength(); i++) {
+            Cluster x = clusters.getIndex(i)
+            for (int j = 0; j < x.members.getLength(); j++) {
+                returnVal++
+            }
+        }
+        return returnVal
+    }
+
+    void ChangePointClustering:addChangePoint() {
+        clusters.add(new Cluster())
+        Cluster x = clusters.getIndex(clusters.getLength()-1)
+        x.members = new List()
+    }
+
+    Cluster[] ChangePointClustering:cluster(store List callerInstantiated) {
+        Cluster returnVal[] = new Cluster[clusters.getLength()]
+        for(int i = 0; i < clusters.getLength(); i++) {
+            returnVal[i] = new Cluster()
+            Cluster internalCluster = clusters.getIndex(i)
+            //Cluster fuck = clusters.getIndex(0)
+            returnVal[i].members = callerInstantiated
+            for(int j = 0; j < internalCluster.members.getLength(); j++) {
+                DataPoint whatev = new DataPoint()
+                DataPoint internalDp = internalCluster.members.getIndex(j)
+                dec three[] = new dec[3]
+                three[0] = internalDp.point[0]
+                three[1] = internalDp.point[1]
+                three[2] = internalDp.point[2]
+                whatev.point = three
+                returnVal[i].members.add(whatev)
+            }
+        }
+        return returnVal
+    }
+
+    /* offending code
+    Cluster[] ChangePointClustering:cluster() {
+        Cluster clustersArr[] = new Cluster[clusters.getLength()]
+        for (int i = 0; i < clusters.getLength(); i++) {
+            Cluster x = clusters.getIndex(i)
+            clustersArr[i] = x
+            DataPoint y = clustersArr[i].members.getIndex(0)
+            out.println(du.makeString(y.point[0]))
+        }
+        return clustersArr
+    }
+    */
+}

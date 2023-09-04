@@ -1,0 +1,17 @@
+uses data.adt.List
+
+data DataPoint {
+    dec point[]
+}
+
+data Cluster {
+    List members 
+}
+
+interface ChangePointClustering {
+    void init()
+    void addDataPoint(dec dataPoint[])
+    int getNumOfDataPoints()
+    void addChangePoint()
+    Cluster[] cluster(store List callerInstantiated)
+}
