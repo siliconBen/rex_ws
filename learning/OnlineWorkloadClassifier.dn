@@ -3,12 +3,14 @@ uses offline.learning_types.Policy
 const char DEFAULT_SERVER_IP[] = "127.0.0.1"
 const int DEFAULT_SERVER_PORT = 8008
 const char OFFLINE_DEFAULT_SERVER_IP[] = "127.0.0.1"
-const int OFFLINE_DEFAULT_SERVER_PORT = 8080
+const int OFFLINE_DEFAULT_SERVER_PORT = 8090
+const char ONLINE_DEFAULT_SERVER_IP[] = "127.0.0.1"
+const int ONLINE_DEFAULT_SERVER_PORT = 8080
 
 const int OBSERVATION_WINDOW = 1000 //ms
 const dec MAX_RT = 1.0 //ms
 
-component provides App requires time.DateUtil dateUtil, data.StringUtil su, data.adt.HashTable, io.Output out, pal.control.RestAPI, net.http.HTTPRequest request, time.Timer timer, data.IntUtil iu, data.DecUtil du, data.json.JSONParser parser, clustering.ChangePointClustering cpc, offline.OfflineConfigLearner ol, data.adt.List{
+component provides App requires offline.ResponseTimeSynchronisation rts, time.DateUtil dateUtil, data.StringUtil su, data.adt.HashTable, io.Output out, pal.control.RestAPI, net.http.HTTPRequest request, time.Timer timer, data.IntUtil iu, data.DecUtil du, data.json.JSONParser parser, clustering.ChangePointClustering cpc, offline.OfflineConfigLearner ol, data.adt.List{
 
     //set params for clustering algorithm
     const int featuresCount = 3
@@ -86,6 +88,9 @@ component provides App requires time.DateUtil dateUtil, data.StringUtil su, data
     }
 
     int App:main(AppParam params[]) {
+        int rtMultiplier = rts.getResponseTimeMultiplier(OFFLINE_DEFAULT_SERVER_IP, ONLINE_DEFAULT_SERVER_IP, OFFLINE_DEFAULT_SERVER_PORT, ONLINE_DEFAULT_SERVER_PORT)
+        out.println("rtMultiplier: $(iu.makeString(rtMultiplier))")
+
         ol.initilise()
         policy = new List()
         policy.add(bootstrap)
@@ -195,7 +200,7 @@ component provides App requires time.DateUtil dateUtil, data.StringUtil su, data
                     //Cluster clusters[] = cluster.cluster(k)
                     Cluster clusters[] = cpc.cluster(new List())
                     Policy policyForNewEnv = ol.getPolicy(clusters[clusters.arrayLength-1], env, OBSERVATION_WINDOW)
-                    Policy local = new Policy((clusters.arrayLength-1), policyForNewEnv.action, policyForNewEnv.maxRT)
+                    Policy local = new Policy((clusters.arrayLength-1), policyForNewEnv.action, policyForNewEnv.maxRT*rtMultiplier)
                     if (firstObservation != 1) {
                         policy.add(local)
                     }

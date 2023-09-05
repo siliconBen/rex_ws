@@ -1,0 +1,3 @@
+interface ResponseTimeSynchronisation {
+    dec getResponseTimeMultiplier(char offlineAddress[], char onlineAddress[], int offinePort, int onlinePort)
+}

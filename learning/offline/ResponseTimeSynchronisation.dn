@@ -1,0 +1,59 @@
+uses time.DateTime
+const int RECV_BUF_SIZE = 512
+component provides ResponseTimeSynchronisation requires io.Output out, data.DecUtil du, net.TCPSocket, io.TextFile, time.Calendar calendar, time.DateUtil dateUtil{
+    int request(char path[], char serverAddress[], int serverPort)
+        {
+        DateTime start = calendar.getTime()
+        
+        char req[] = new char[]("GET ", path, " HTTP/1.1\r\n\r\n")
+        
+        TCPSocket s = new TCPSocket()
+        s.connect(serverAddress, serverPort)
+        
+        s.send(req)
+
+        int totalReceived = 0
+        byte resp[]
+        while ((resp = s.recv(RECV_BUF_SIZE)).arrayLength > 0) {
+            totalReceived += resp.arrayLength
+        }
+        
+        s.disconnect()
+        
+        DateTime end = calendar.getTime()
+        
+        DateTime diff = dateUtil.diff(start, end)
+        
+        int ms = dateUtil.toMilliseconds(diff)
+        
+        return ms
+        }
+
+    dec ResponseTimeSynchronisation:getResponseTimeMultiplier(char offlineAddress[], char onlineAddress[], int offinePort, int onlinePort) {
+        
+        TextFile fd = new TextFile("/home/ben/Documents/PhD/rex_ws/client/client_default.txt", File.READ)
+        
+        if (fd != null) {
+            
+            int totalMsForOnline = 0
+            int totalMsForOffline = 0
+            for (int i = 0; i < 10; i++) {
+                while (!fd.eof()) {
+                    char resource[] = fd.readLine()
+                    totalMsForOffline += request(resource, offlineAddress, offinePort)
+                    totalMsForOnline += request(resource, onlineAddress, onlinePort)
+                }
+            }
+            dec avgMsForOnline = totalMsForOnline / 10
+            dec avgMsForOffline = totalMsForOffline / 10
+            out.println("avg ms: $(du.makeString(avgMsForOffline)):$(du.makeString(avgMsForOnline))")
+            dec multiplier = avgMsForOnline/avgMsForOffline
+
+            fd.close()
+            if (multiplier == 0) {return 1.0}
+            return multiplier
+        }
+
+        return 0.0
+    }
+}
