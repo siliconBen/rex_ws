@@ -2,8 +2,11 @@ const char SERVER_ADDRESS[] = "localhost"
 const int SERVER_PORT = 8080
 
 const int RECV_BUF_SIZE = 512
-
-component provides App requires io.TextFile, net.TCPSocket, io.Output out, time.Calendar calendar, time.DateUtil dateUtil, time.Timer timer, data.DecUtil du, data.IntUtil iu {
+uses data.String
+data DataListWrapper {
+    List list
+}
+component provides App requires data.adt.List, io.TextFile, net.TCPSocket, io.Output out, time.Calendar calendar, time.DateUtil dateUtil, time.Timer timer, data.DecUtil du, data.IntUtil iu {
 	
 	int totalTime
 	int resourceCount
@@ -67,9 +70,20 @@ component provides App requires io.TextFile, net.TCPSocket, io.Output out, time.
 			resourceCount ++
 			}
 		}
+
+    void requestBatch(DataListWrapper thread, int threadId) {
+        while (true) {
+            for (int i = 0; i < thread.list.getLength(); i ++) {
+                String x = thread.list.getIndex(i)
+                //out.println("Thread $(iu.makeString(threadId)) requesting $(x.string)")
+                request(x.string)
+            }
+        }
+    }
 	
 	int App:main(AppParam params[])
 		{
+        List reqThreads = new List()
 		char path[]
 		
 		if (params.arrayLength == 1)
@@ -80,23 +94,39 @@ component provides App requires io.TextFile, net.TCPSocket, io.Output out, time.
 		TextFile fd = new TextFile(path, File.FILE_ACCESS_READ)
 		
 		if (fd != null)
+            out.println("fd not null")
 			{
 			asynch::statThread()
 			
-			//read each line of the file as one resource to request
-			// - at the end of the file we loop back to the start
-			while (true)
-				{
+            //read each line of txt file
+            //empty line denotes following lines belong to new thread up to the next empty line
+            //store the request data in 2d list (threads x requests)
+            //for each entry in the threads list, lauch an asynch thread that executes the corrosponing requests
+                List nextThread = new List()
+                DataListWrapper wrap = new DataListWrapper(nextThread)
+                reqThreads.add(wrap)
 				while (!fd.eof())
 					{
 					char resource[] = fd.readLine()
-					request(resource)
+                    if (resource == "") {
+                        nextThread = new List()
+                        wrap = new DataListWrapper(nextThread)
+                        reqThreads.add(wrap)
+                    }
+                    else {
+                        String resourceStr = new String(resource)
+                        nextThread.add(resourceStr)
+                    }
 					}
-				
-				fd.setPos(0)
-				}
+
+                out.println("Thread Count: $(iu.makeString(reqThreads.getLength()))")
 			
 			fd.close()
+
+            
+            for (int i = 0; i < reqThreads.getLength(); i++) {
+                asynch::requestBatch(reqThreads.getIndex(i), i)
+            }
 			}
 		
 		return 0
