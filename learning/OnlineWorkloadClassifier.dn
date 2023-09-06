@@ -87,6 +87,30 @@ component provides App requires offline.ResponseTimeSynchronisation rts, time.Da
         return start
     }
 
+    bool setContains(List set, Data el) {
+        Policy elp = el
+        for (int i = 0; i < set.getLength(); i++) {
+            Policy fromSet = set.getIndex(i)
+            if (
+                fromSet.action == elp.action &&
+                fromSet.maxRT == elp.maxRT
+               ) {
+                return true
+            }
+        }
+        return false
+    }
+
+    List trim(List policyList) {
+        List set = new List()
+        for (int i = 0; i < policyList.getLength(); i++) {
+            if (!setContains(set, policyList.getIndex(i))) {
+                set.add(policyList.getIndex(i))
+            }
+        }
+        return set
+    }
+
     int App:main(AppParam params[]) {
         int rtMultiplier = rts.getResponseTimeMultiplier(OFFLINE_DEFAULT_SERVER_IP, ONLINE_DEFAULT_SERVER_IP, OFFLINE_DEFAULT_SERVER_PORT, ONLINE_DEFAULT_SERVER_PORT)
         out.println("rtMultiplier: $(iu.makeString(rtMultiplier))")
@@ -210,6 +234,7 @@ component provides App requires offline.ResponseTimeSynchronisation rts, time.Da
                     firstObservation = 0
                 }
             }
+            policy = trim(policy)
         }
         return 0
     }

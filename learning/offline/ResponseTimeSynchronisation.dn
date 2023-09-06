@@ -44,8 +44,8 @@ component provides ResponseTimeSynchronisation requires io.Output out, data.DecU
                     totalMsForOnline += request(resource, onlineAddress, onlinePort)
                 }
             }
-            dec avgMsForOnline = totalMsForOnline / 10
-            dec avgMsForOffline = totalMsForOffline / 10
+            dec avgMsForOnline = totalMsForOnline / 10.0
+            dec avgMsForOffline = totalMsForOffline / 10.0
             out.println("avg ms: $(du.makeString(avgMsForOffline)):$(du.makeString(avgMsForOnline))")
             dec multiplier = avgMsForOnline/avgMsForOffline
 
