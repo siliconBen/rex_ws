@@ -1,6 +1,6 @@
-component provides clustering.ChangePointClustering requires data.adt.List, io.Output out, data.DecUtil du {
+component provides clustering.ChangePointClustering requires util.Math ma, data.adt.List, io.Output out, data.DecUtil du {
     List clusters
-
+    
     void ChangePointClustering:init() {
         clusters = new List()
         clusters.add(new Cluster())
@@ -8,11 +8,11 @@ component provides clustering.ChangePointClustering requires data.adt.List, io.O
         x.members = new List()
     }
 
-    void ChangePointClustering:addDataPoint(dec dataPoint[]) {
+    void ChangePointClustering:addDataPoint(dec dataPoint[], int clusterIndex) {
         DataPoint newPoint = new DataPoint()
         newPoint.point = dataPoint
         int numOfClusters = clusters.getLength() 
-        Cluster toAddTo = clusters.getIndex(numOfClusters-1)
+        Cluster toAddTo = clusters.getIndex(clusterIndex)
         toAddTo.members.add(newPoint)
         return
     }
@@ -53,6 +53,68 @@ component provides clustering.ChangePointClustering requires data.adt.List, io.O
             }
         }
         return returnVal
+    }
+
+    void ChangePointClustering:rmChangePoint() {
+        int len = clusters.getLength()
+        if (len > 0) {
+            Cluster lastCluster = clusters.getIndex(len-1)
+            clusters.remove(lastCluster)
+        }
+    }
+
+    dec positive(dec value) {
+        if (value < 0.0) {return value * -1.0}
+        else {return value}
+    }
+ 
+    int ChangePointClustering:belongsTo(dec point[]) {
+        //get dimention of clusters datapoints
+        Cluster x = clusters.getIndex(0)
+        List xMembers = x.members
+        DataPoint dp = xMembers.getIndex(0)
+        if (dp == null) {return 0}
+        int dim = dp.point.arrayLength
+
+        //for each cluster, get it's mean.
+        //which mean is 'point' cloest to?
+        List means = new List()
+        for (int i = 0; i < clusters.getLength(); i++) {
+            Cluster current = clusters.getIndex(i)
+            DataPoint mean = new DataPoint()
+            mean.point = new dec[dim]
+            mean.point[0] = 0.0
+            mean.point[1] = 0.0
+            mean.point[2] = 0.0
+            for (int j = 0; j < current.members.getLength(); j++) {
+                DataPoint currentDp = current.members.getIndex(j)
+                for (int k = 0; k < dim; k++) {
+                    mean.point[k] += currentDp.point[k]
+                }
+            }
+            for (int k = 0; k < dim; k++) {
+                mean.point[k] = mean.point[k] / current.members.getLength()
+            }
+            means.add(mean)
+        }
+        dec distances[] = new dec[clusters.getLength()]
+        for (int i = 0; i < distances.arrayLength; i++) {
+            dec diff = 0
+            DataPoint clusterMean = means.getIndex(i)
+            dec clusterMeanPrim[] = clusterMean.point
+            for (int j = 0; j < dim; j++) {
+                diff += positive(ma.power(point[j] - clusterMeanPrim[j], 2.0))
+            }
+            distances[i] = ma.sqrt(diff)
+        }
+        //return index of smallest distances
+        int smallestIndex = 0
+        for (int i = 0; i < distances.arrayLength; i++) {
+            if (distances[i] < distances[smallestIndex]) {
+                smallestIndex = i
+            }
+        }
+        return smallestIndex
     }
 
     /* offending code

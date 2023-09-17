@@ -1,0 +1,3 @@
+/image_big.jpg
+/index_big.html
+/index_huge.html

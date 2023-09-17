@@ -1,0 +1,161 @@
+const char SERVER_ADDRESS[] = "localhost"
+const int SERVER_PORT = 8080
+
+const int RECV_BUF_SIZE = 512
+const char REQ_PATTERNS_DIR_PATH[] = "/home/ben/Documents/PhD/rex_ws/client/Request_Patterns/"
+
+const int ROUND_ROBIN = 0
+
+uses data.String
+data DataListWrapper {
+    List list
+}
+component provides App requires data.StringBuilder, util.Random rand, data.adt.List, io.TextFile, io.FileSystem dir, net.TCPSocket, io.Output out, time.Calendar calendar, time.DateUtil dateUtil, time.Timer timer, data.DecUtil du, data.IntUtil iu {
+	
+	int totalTime
+	int resourceCount
+	Mutex statLock = new Mutex()
+	
+	void statThread()
+		{
+		while (true)
+			{
+			dec avg
+			bool print = false
+			
+			mutex(statLock)
+				{
+				avg = totalTime
+				
+				if (resourceCount > 0)
+					{
+					avg = avg / resourceCount
+					print = true
+					}
+				
+				totalTime = 0
+				resourceCount = 0
+				}
+			
+			if (print) out.println("average response time: $(du.decToString(avg))ms")
+
+            totalTime = 0
+            resourceCount = 0
+			
+			timer.sleep(1000)
+			}
+		}
+	
+	void request(char path[])
+		{
+            DateTime start = calendar.getTime()
+            
+            char req[] = new char[]("GET ", path, " HTTP/1.1\r\n\r\n")
+            
+            TCPSocket s = new TCPSocket()
+            s.connect(SERVER_ADDRESS, SERVER_PORT)
+            
+            s.send(req)
+
+            int totalReceived = 0
+            byte resp[]
+            while ((resp = s.recv(RECV_BUF_SIZE)).arrayLength > 0) {
+                totalReceived += resp.arrayLength
+            }
+            
+            s.disconnect()
+            
+            DateTime end = calendar.getTime()
+            
+            DateTime diff = dateUtil.diff(start, end)
+            
+            int ms = dateUtil.toMilliseconds(diff)
+            
+            mutex(statLock)
+                {
+                totalTime += ms
+                resourceCount ++
+                }
+    }
+
+    void requestBatch(DataListWrapper thread, int threadId) {
+        int totalDiff = 0
+        DateTime start = calendar.getTime()
+        while (totalDiff < 4000) {
+            for (int i = 0; i < thread.list.getLength(); i ++) {
+                String x = thread.list.getIndex(i)
+                //out.println("Thread $(iu.makeString(threadId)) requesting $(x.string)")
+                request(x.string)
+            }
+            DateTime end = calendar.getTime()
+            
+            DateTime diff = dateUtil.diff(start, end)
+            
+            int ms = dateUtil.toMilliseconds(diff)
+            totalDiff+=ms
+        }
+    }
+	
+	int App:main(AppParam params[]) {
+        asynch::statThread()
+        //FileEntry reqPatternsPaths[] = dir.getDirectoryContents(REQ_PATTERNS_DIR_PATH)
+        //rand.setSeed(dateUtil.toMilliseconds(calendar.getTime()))
+
+        if (!(params.arrayLength >= 1)) {
+            out.println("invalid param count")
+            return 0
+        }
+
+        TextFile reqPatternFiles[] = new TextFile[params.arrayLength]
+        for (int i = 0; i < params.arrayLength; i++) {
+            StringBuilder sb = new StringBuilder()
+            sb.add(REQ_PATTERNS_DIR_PATH)
+            sb.add(params[i].string)
+            char chosenReqPatternPath[] = sb.get()
+            reqPatternFiles[i] = new TextFile(chosenReqPatternPath, File.FILE_ACCESS_READ)
+        }
+
+        while (true) {
+            for (int reqPatternFileCounter = 0; reqPatternFileCounter < params.arrayLength; reqPatternFileCounter++) {
+                List reqThreads = new List()
+
+                TextFile fd = reqPatternFiles[reqPatternFileCounter]
+                
+                if (fd != null) {
+                    
+                    //read each line of txt file
+                    //empty line denotes following lines belong to new thread up to the next empty line
+                    //store the request data in 2d list (threads x requests)
+                    //for each entry in the threads list, lauch an asynch thread that executes the corrosponing requests
+                    List nextThread = new List()
+                    DataListWrapper wrap = new DataListWrapper(nextThread)
+                    reqThreads.add(wrap)
+                    while (!fd.eof()) {
+                        char resource[] = fd.readLine()
+                        if (resource == "") {
+                            nextThread = new List()
+                            wrap = new DataListWrapper(nextThread)
+                            reqThreads.add(wrap)
+                        }
+                        else {
+                            String resourceStr = new String(resource)
+                            nextThread.add(resourceStr)
+                        }
+                    }
+
+                    //out.println("Thread Count: $(iu.makeString(reqThreads.getLength()))")
+
+                    Thread t
+                    for (int i = 0; i < reqThreads.getLength(); i++) {
+                        t = asynch::requestBatch(reqThreads.getIndex(i), i)
+                    }
+                    t.join()
+                    fd.setPos(0)
+                }
+                timer.sleep(500)
+            }
+        }
+		return 0
+	}
+	
+}

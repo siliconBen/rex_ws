@@ -10,8 +10,10 @@ data Cluster {
 
 interface ChangePointClustering {
     void init()
-    void addDataPoint(dec dataPoint[])
+    void addDataPoint(dec dataPoint[], int clusterIndex)
     int getNumOfDataPoints()
     void addChangePoint()
+    int belongsTo(dec point[])
+    void rmChangePoint()
     Cluster[] cluster(store List callerInstantiated)
 }

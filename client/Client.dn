@@ -94,7 +94,6 @@ component provides App requires data.adt.List, io.TextFile, net.TCPSocket, io.Ou
 		TextFile fd = new TextFile(path, File.FILE_ACCESS_READ)
 		
 		if (fd != null)
-            out.println("fd not null")
 			{
 			asynch::statThread()
 			

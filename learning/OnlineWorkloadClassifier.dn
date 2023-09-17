@@ -204,8 +204,7 @@ component provides App requires offline.ResponseTimeSynchronisation rts, time.Da
             
             if (rt >= currentPolicy.maxRT) {
                 //if in incorrect env, switch envs and continue
-                //int newEnv = currentEnv(cluster, features, env)
-                int newEnv = env //temp!
+                int newEnv = cpc.belongsTo(features) //throws exception on first call
                 if(env != newEnv) { //could end up chasing your own tail here
                     out.print("switching from Env: ")
                     out.print(iu.makeString(env))
@@ -213,6 +212,7 @@ component provides App requires offline.ResponseTimeSynchronisation rts, time.Da
                     out.print("To Env: ")
                     out.print(iu.makeString(newEnv))
                     env = newEnv 
+                    //cpc.addDataPoint(features, env)
                 }
                 //else create new env and query offline learner
                 else {
@@ -220,9 +220,17 @@ component provides App requires offline.ResponseTimeSynchronisation rts, time.Da
                         //k+=1
                         cpc.addChangePoint()
                     }
-                    cpc.addDataPoint(features)
                     //Cluster clusters[] = cluster.cluster(k)
                     Cluster clusters[] = cpc.cluster(new List())
+                    if (clusters == null) {
+                        out.println("no clusters")
+                        cpc.addDataPoint(features, 0)
+                    }
+                    else {
+                        cpc.addDataPoint(features, clusters.arrayLength-1)
+                    }
+                    clusters = cpc.cluster(new List())
+
                     Policy policyForNewEnv = ol.getPolicy(clusters[clusters.arrayLength-1], env, OBSERVATION_WINDOW)
                     Policy local = new Policy((clusters.arrayLength-1), policyForNewEnv.action, policyForNewEnv.maxRT*rtMultiplier)
                     if (firstObservation != 1) {
@@ -234,7 +242,13 @@ component provides App requires offline.ResponseTimeSynchronisation rts, time.Da
                     firstObservation = 0
                 }
             }
+            else {
+                cpc.addDataPoint(features, env)
+            }
+            int policySize = policy.getLength()
             policy = trim(policy)
+            int trimPolicySize = policy.getLength()
+            if (trimPolicySize < policySize) {cpc.rmChangePoint()}
         }
         return 0
     }

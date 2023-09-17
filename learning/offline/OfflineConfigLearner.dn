@@ -359,6 +359,10 @@ component provides offline.OfflineConfigLearner requires util.Math ma, io.TextFi
         else if (range.members == null) {out.print("members")}
         if (range.members.getLength() > 0) {
             DataPoint x = range.members.getIndex(0)
+            out.println("ranges: ")
+            out.println("$(du.makeString(x.point[0]))")
+            out.println("$(du.makeString(x.point[1]))")
+            out.println("$(du.makeString(x.point[2]))")
             extractedRange.imgVolMin = x.point[2]
             extractedRange.imgVolMax = x.point[2]
             extractedRange.textVolMin = x.point[1]
@@ -393,6 +397,14 @@ component provides offline.OfflineConfigLearner requires util.Math ma, io.TextFi
     }
 
     List generateSynthRequestPattern(RequestPatternRange ranges) {
+        out.println("ranges: ")
+        out.println("$(du.makeString(ranges.imgVolMin))")
+        out.println("$(du.makeString(ranges.imgVolMax))")
+        out.println("$(du.makeString(ranges.textVolMin))")
+        out.println("$(du.makeString(ranges.textVolMax))")
+        out.println("$(du.makeString(ranges.reqCountMin))")
+        out.println("$(du.makeString(ranges.reqCountMax))")
+
         List synthReqPattern = new List()
         //pick random number in range of observed req count
         int reqCount = 0
@@ -485,12 +497,19 @@ component provides offline.OfflineConfigLearner requires util.Math ma, io.TextFi
 
     Policy OfflineConfigLearner:getPolicy(Cluster cluster, int currentOnlineEnv, int observationWindow) {
         //find number of configs for web server
+        if (cluster == null) {
+            out.println("issue with cluster passed to offline learner")
+        }
 		RestAPI restAPI = new RestAPI(DEFAULT_SERVER_IP, DEFAULT_SERVER_PORT)
 		String configs[] = restAPI.getConfigs()
         int numOfConfigs = configs.arrayLength
 
         List ranges = new List() 
 
+        RequestPatternRange checkForNull = extractRequestPatternRanges(cluster, 3)
+        if (checkForNull == null) {
+            out.println("issue with extractRequestPatternRanges")
+        }
         ranges.add(extractRequestPatternRanges(cluster, 3))
         //query the pal to get persception
             List synthReqPattern = generateSynthRequestPattern(ranges.getIndex(0))
